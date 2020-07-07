@@ -1,7 +1,5 @@
 "use strict";
 
-//comentario para que haya un maldito cambio
-
 (function() {
 	
 	class OfflineClient

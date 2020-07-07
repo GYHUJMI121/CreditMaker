@@ -15220,6 +15220,808 @@ cr.system_object.prototype.loadFromJSON = function (o)
 cr.shaders = {};
 ;
 ;
+cr.plugins_.Browser = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Browser.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	var offlineScriptReady = false;
+	var browserPluginReady = false;
+	document.addEventListener("DOMContentLoaded", function ()
+	{
+		if (window["C2_RegisterSW"] && navigator["serviceWorker"])
+		{
+			var offlineClientScript = document.createElement("script");
+			offlineClientScript.onload = function ()
+			{
+				offlineScriptReady = true;
+				checkReady()
+			};
+			offlineClientScript.src = "offlineClient.js";
+			document.head.appendChild(offlineClientScript);
+		}
+	});
+	var browserInstance = null;
+	typeProto.onAppBegin = function ()
+	{
+		browserPluginReady = true;
+		checkReady();
+	};
+	function checkReady()
+	{
+		if (offlineScriptReady && browserPluginReady && window["OfflineClientInfo"])
+		{
+			window["OfflineClientInfo"]["SetMessageCallback"](function (e)
+			{
+				browserInstance.onSWMessage(e);
+			});
+		}
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	instanceProto.onCreate = function()
+	{
+		var self = this;
+		window.addEventListener("resize", function () {
+			self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnResize, self);
+		});
+		browserInstance = this;
+		if (typeof navigator.onLine !== "undefined")
+		{
+			window.addEventListener("online", function() {
+				self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnOnline, self);
+			});
+			window.addEventListener("offline", function() {
+				self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnOffline, self);
+			});
+		}
+		if (!this.runtime.isDirectCanvas)
+		{
+			document.addEventListener("appMobi.device.update.available", function() {
+				self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnUpdateReady, self);
+			});
+			document.addEventListener("backbutton", function() {
+				self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnBackButton, self);
+			});
+			document.addEventListener("menubutton", function() {
+				self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnMenuButton, self);
+			});
+			document.addEventListener("searchbutton", function() {
+				self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnSearchButton, self);
+			});
+			document.addEventListener("tizenhwkey", function (e) {
+				var ret;
+				switch (e["keyName"]) {
+				case "back":
+					ret = self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnBackButton, self);
+					if (!ret)
+					{
+						if (window["tizen"])
+							window["tizen"]["application"]["getCurrentApplication"]()["exit"]();
+					}
+					break;
+				case "menu":
+					ret = self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnMenuButton, self);
+					if (!ret)
+						e.preventDefault();
+					break;
+				}
+			});
+		}
+		if (this.runtime.isWindows10 && typeof Windows !== "undefined")
+		{
+			Windows["UI"]["Core"]["SystemNavigationManager"]["getForCurrentView"]().addEventListener("backrequested", function (e)
+			{
+				var ret = self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnBackButton, self);
+				if (ret)
+					e["handled"] = true;
+		    });
+		}
+		else if (this.runtime.isWinJS && WinJS["Application"])
+		{
+			WinJS["Application"]["onbackclick"] = function (e)
+			{
+				return !!self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnBackButton, self);
+			};
+		}
+		this.runtime.addSuspendCallback(function(s) {
+			if (s)
+			{
+				self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnPageHidden, self);
+			}
+			else
+			{
+				self.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnPageVisible, self);
+			}
+		});
+		this.is_arcade = (typeof window["is_scirra_arcade"] !== "undefined");
+	};
+	instanceProto.onSWMessage = function (e)
+	{
+		var messageType = e["data"]["type"];
+		if (messageType === "downloading-update")
+			this.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnUpdateFound, this);
+		else if (messageType === "update-ready" || messageType === "update-pending")
+			this.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnUpdateReady, this);
+		else if (messageType === "offline-ready")
+			this.runtime.trigger(cr.plugins_.Browser.prototype.cnds.OnOfflineReady, this);
+	};
+	var batteryManager = null;
+	var loadedBatteryManager = false;
+	function maybeLoadBatteryManager()
+	{
+		if (loadedBatteryManager)
+			return;
+		if (!navigator["getBattery"])
+			return;
+		var promise = navigator["getBattery"]();
+		loadedBatteryManager = true;
+		if (promise)
+		{
+			promise.then(function (manager) {
+				batteryManager = manager;
+			});
+		}
+	};
+	function Cnds() {};
+	Cnds.prototype.CookiesEnabled = function()
+	{
+		return navigator ? navigator.cookieEnabled : false;
+	};
+	Cnds.prototype.IsOnline = function()
+	{
+		return navigator ? navigator.onLine : false;
+	};
+	Cnds.prototype.HasJava = function()
+	{
+		return navigator ? navigator.javaEnabled() : false;
+	};
+	Cnds.prototype.OnOnline = function()
+	{
+		return true;
+	};
+	Cnds.prototype.OnOffline = function()
+	{
+		return true;
+	};
+	Cnds.prototype.IsDownloadingUpdate = function ()
+	{
+		return false;		// deprecated
+	};
+	Cnds.prototype.OnUpdateReady = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.PageVisible = function ()
+	{
+		return !this.runtime.isSuspended;
+	};
+	Cnds.prototype.OnPageVisible = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnPageHidden = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnResize = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.IsFullscreen = function ()
+	{
+		return !!(document["mozFullScreen"] || document["webkitIsFullScreen"] || document["fullScreen"] || this.runtime.isNodeFullscreen);
+	};
+	Cnds.prototype.OnBackButton = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnMenuButton = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnSearchButton = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.IsMetered = function ()
+	{
+		var connection = navigator["connection"] || navigator["mozConnection"] || navigator["webkitConnection"];
+		if (!connection)
+			return false;
+		return !!connection["metered"];
+	};
+	Cnds.prototype.IsCharging = function ()
+	{
+		var battery = navigator["battery"] || navigator["mozBattery"] || navigator["webkitBattery"];
+		if (battery)
+		{
+			return !!battery["charging"]
+		}
+		else
+		{
+			maybeLoadBatteryManager();
+			if (batteryManager)
+			{
+				return !!batteryManager["charging"];
+			}
+			else
+			{
+				return true;		// if unknown, default to charging (powered)
+			}
+		}
+	};
+	Cnds.prototype.IsPortraitLandscape = function (p)
+	{
+		var current = (window.innerWidth <= window.innerHeight ? 0 : 1);
+		return current === p;
+	};
+	Cnds.prototype.SupportsFullscreen = function ()
+	{
+		if (this.runtime.isNodeWebkit)
+			return true;
+		var elem = this.runtime.canvasdiv || this.runtime.canvas;
+		return !!(elem["requestFullscreen"] || elem["mozRequestFullScreen"] || elem["msRequestFullscreen"] || elem["webkitRequestFullScreen"]);
+	};
+	Cnds.prototype.OnUpdateFound = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnUpdateReady = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnOfflineReady = function ()
+	{
+		return true;
+	};
+	pluginProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.Alert = function (msg)
+	{
+		if (!this.runtime.isDomFree)
+			alert(msg.toString());
+	};
+	Acts.prototype.Close = function ()
+	{
+		if (this.runtime.isCocoonJs)
+			CocoonJS["App"]["forceToFinish"]();
+		else if (window["tizen"])
+			window["tizen"]["application"]["getCurrentApplication"]()["exit"]();
+		else if (navigator["app"] && navigator["app"]["exitApp"])
+			navigator["app"]["exitApp"]();
+		else if (navigator["device"] && navigator["device"]["exitApp"])
+			navigator["device"]["exitApp"]();
+		else if (!this.is_arcade && !this.runtime.isDomFree)
+			window.close();
+	};
+	Acts.prototype.Focus = function ()
+	{
+		if (this.runtime.isNodeWebkit)
+		{
+			var win = window["nwgui"]["Window"]["get"]();
+			win["focus"]();
+		}
+		else if (!this.is_arcade && !this.runtime.isDomFree)
+			window.focus();
+	};
+	Acts.prototype.Blur = function ()
+	{
+		if (this.runtime.isNodeWebkit)
+		{
+			var win = window["nwgui"]["Window"]["get"]();
+			win["blur"]();
+		}
+		else if (!this.is_arcade && !this.runtime.isDomFree)
+			window.blur();
+	};
+	Acts.prototype.GoBack = function ()
+	{
+		if (navigator["app"] && navigator["app"]["backHistory"])
+			navigator["app"]["backHistory"]();
+		else if (!this.is_arcade && !this.runtime.isDomFree && window.back)
+			window.back();
+	};
+	Acts.prototype.GoForward = function ()
+	{
+		if (!this.is_arcade && !this.runtime.isDomFree && window.forward)
+			window.forward();
+	};
+	Acts.prototype.GoHome = function ()
+	{
+		if (!this.is_arcade && !this.runtime.isDomFree && window.home)
+			window.home();
+	};
+	Acts.prototype.GoToURL = function (url, target)
+	{
+		if (this.runtime.isCocoonJs)
+			CocoonJS["App"]["openURL"](url);
+		else if (this.runtime.isEjecta)
+			ejecta["openURL"](url);
+		else if (this.runtime.isWinJS)
+			Windows["System"]["Launcher"]["launchUriAsync"](new Windows["Foundation"]["Uri"](url));
+		else if (navigator["app"] && navigator["app"]["loadUrl"])
+			navigator["app"]["loadUrl"](url, { "openExternal": true });
+		else if (this.runtime.isCordova)
+			window.open(url, "_system");
+		else if (!this.is_arcade && !this.runtime.isDomFree)
+		{
+			if (target === 2 && !this.is_arcade)		// top
+				window.top.location = url;
+			else if (target === 1 && !this.is_arcade)	// parent
+				window.parent.location = url;
+			else					// self
+				window.location = url;
+		}
+	};
+	Acts.prototype.GoToURLWindow = function (url, tag)
+	{
+		if (this.runtime.isCocoonJs)
+			CocoonJS["App"]["openURL"](url);
+		else if (this.runtime.isEjecta)
+			ejecta["openURL"](url);
+		else if (this.runtime.isWinJS)
+			Windows["System"]["Launcher"]["launchUriAsync"](new Windows["Foundation"]["Uri"](url));
+		else if (navigator["app"] && navigator["app"]["loadUrl"])
+			navigator["app"]["loadUrl"](url, { "openExternal": true });
+		else if (this.runtime.isCordova)
+			window.open(url, "_system");
+		else if (!this.is_arcade && !this.runtime.isDomFree)
+			window.open(url, tag);
+	};
+	Acts.prototype.Reload = function ()
+	{
+		if (!this.is_arcade && !this.runtime.isDomFree)
+			window.location.reload();
+	};
+	var firstRequestFullscreen = true;
+	var crruntime = null;
+	function onFullscreenError(e)
+	{
+		if (console && console.warn)
+			console.warn("Fullscreen request failed: ", e);
+		crruntime["setSize"](window.innerWidth, window.innerHeight);
+	};
+	Acts.prototype.RequestFullScreen = function (stretchmode)
+	{
+		if (this.runtime.isDomFree)
+		{
+			cr.logexport("[Construct 2] Requesting fullscreen is not supported on this platform - the request has been ignored");
+			return;
+		}
+		if (stretchmode >= 2)
+			stretchmode += 1;
+		if (stretchmode === 6)
+			stretchmode = 2;
+		if (this.runtime.isNodeWebkit)
+		{
+			if (this.runtime.isDebug)
+			{
+				debuggerFullscreen(true);
+			}
+			else if (!this.runtime.isNodeFullscreen && window["nwgui"])
+			{
+				window["nwgui"]["Window"]["get"]()["enterFullscreen"]();
+				this.runtime.isNodeFullscreen = true;
+				this.runtime.fullscreen_scaling = (stretchmode >= 2 ? stretchmode : 0);
+			}
+		}
+		else
+		{
+			if (document["mozFullScreen"] || document["webkitIsFullScreen"] || !!document["msFullscreenElement"] || document["fullScreen"] || document["fullScreenElement"])
+			{
+				return;
+			}
+			this.runtime.fullscreen_scaling = (stretchmode >= 2 ? stretchmode : 0);
+			var elem = document.documentElement;
+			if (firstRequestFullscreen)
+			{
+				firstRequestFullscreen = false;
+				crruntime = this.runtime;
+				elem.addEventListener("mozfullscreenerror", onFullscreenError);
+				elem.addEventListener("webkitfullscreenerror", onFullscreenError);
+				elem.addEventListener("MSFullscreenError", onFullscreenError);
+				elem.addEventListener("fullscreenerror", onFullscreenError);
+			}
+			if (elem["requestFullscreen"])
+				elem["requestFullscreen"]();
+			else if (elem["mozRequestFullScreen"])
+				elem["mozRequestFullScreen"]();
+			else if (elem["msRequestFullscreen"])
+				elem["msRequestFullscreen"]();
+			else if (elem["webkitRequestFullScreen"])
+			{
+				if (typeof Element !== "undefined" && typeof Element["ALLOW_KEYBOARD_INPUT"] !== "undefined")
+					elem["webkitRequestFullScreen"](Element["ALLOW_KEYBOARD_INPUT"]);
+				else
+					elem["webkitRequestFullScreen"]();
+			}
+		}
+	};
+	Acts.prototype.CancelFullScreen = function ()
+	{
+		if (this.runtime.isDomFree)
+		{
+			cr.logexport("[Construct 2] Exiting fullscreen is not supported on this platform - the request has been ignored");
+			return;
+		}
+		if (this.runtime.isNodeWebkit)
+		{
+			if (this.runtime.isDebug)
+			{
+				debuggerFullscreen(false);
+			}
+			else if (this.runtime.isNodeFullscreen && window["nwgui"])
+			{
+				window["nwgui"]["Window"]["get"]()["leaveFullscreen"]();
+				this.runtime.isNodeFullscreen = false;
+			}
+		}
+		else
+		{
+			if (document["exitFullscreen"])
+				document["exitFullscreen"]();
+			else if (document["mozCancelFullScreen"])
+				document["mozCancelFullScreen"]();
+			else if (document["msExitFullscreen"])
+				document["msExitFullscreen"]();
+			else if (document["webkitCancelFullScreen"])
+				document["webkitCancelFullScreen"]();
+		}
+	};
+	Acts.prototype.Vibrate = function (pattern_)
+	{
+		try {
+			var arr = pattern_.split(",");
+			var i, len;
+			for (i = 0, len = arr.length; i < len; i++)
+			{
+				arr[i] = parseInt(arr[i], 10);
+			}
+			if (navigator["vibrate"])
+				navigator["vibrate"](arr);
+			else if (navigator["mozVibrate"])
+				navigator["mozVibrate"](arr);
+			else if (navigator["webkitVibrate"])
+				navigator["webkitVibrate"](arr);
+			else if (navigator["msVibrate"])
+				navigator["msVibrate"](arr);
+		}
+		catch (e) {}
+	};
+	Acts.prototype.InvokeDownload = function (url_, filename_)
+	{
+		var a = document.createElement("a");
+		if (typeof a["download"] === "undefined")
+		{
+			window.open(url_);
+		}
+		else
+		{
+			var body = document.getElementsByTagName("body")[0];
+			a.textContent = filename_;
+			a.href = url_;
+			a["download"] = filename_;
+			body.appendChild(a);
+			var clickEvent = new MouseEvent("click");
+			a.dispatchEvent(clickEvent);
+			body.removeChild(a);
+		}
+	};
+	Acts.prototype.InvokeDownloadString = function (str_, mimetype_, filename_)
+	{
+		var datauri = "data:" + mimetype_ + "," + encodeURIComponent(str_);
+		var a = document.createElement("a");
+		if (typeof a["download"] === "undefined")
+		{
+			window.open(datauri);
+		}
+		else
+		{
+			var body = document.getElementsByTagName("body")[0];
+			a.textContent = filename_;
+			a.href = datauri;
+			a["download"] = filename_;
+			body.appendChild(a);
+			var clickEvent = new MouseEvent("click");
+			a.dispatchEvent(clickEvent);
+			body.removeChild(a);
+		}
+	};
+	Acts.prototype.ConsoleLog = function (type_, msg_)
+	{
+		if (typeof console === "undefined")
+			return;
+		if (type_ === 0 && console.log)
+			console.log(msg_.toString());
+		if (type_ === 1 && console.warn)
+			console.warn(msg_.toString());
+		if (type_ === 2 && console.error)
+			console.error(msg_.toString());
+	};
+	Acts.prototype.ConsoleGroup = function (name_)
+	{
+		if (console && console.group)
+			console.group(name_);
+	};
+	Acts.prototype.ConsoleGroupEnd = function ()
+	{
+		if (console && console.groupEnd)
+			console.groupEnd();
+	};
+	Acts.prototype.ExecJs = function (js_)
+	{
+		try {
+			if (eval)
+				eval(js_);
+		}
+		catch (e)
+		{
+			if (console && console.error)
+				console.error("Error executing Javascript: ", e);
+		}
+	};
+	var orientations = [
+		"portrait",
+		"landscape",
+		"portrait-primary",
+		"portrait-secondary",
+		"landscape-primary",
+		"landscape-secondary"
+	];
+	Acts.prototype.LockOrientation = function (o)
+	{
+		o = Math.floor(o);
+		if (o < 0 || o >= orientations.length)
+			return;
+		this.runtime.autoLockOrientation = false;
+		var orientation = orientations[o];
+		if (screen["orientation"] && screen["orientation"]["lock"])
+			screen["orientation"]["lock"](orientation);
+		else if (screen["lockOrientation"])
+			screen["lockOrientation"](orientation);
+		else if (screen["webkitLockOrientation"])
+			screen["webkitLockOrientation"](orientation);
+		else if (screen["mozLockOrientation"])
+			screen["mozLockOrientation"](orientation);
+		else if (screen["msLockOrientation"])
+			screen["msLockOrientation"](orientation);
+	};
+	Acts.prototype.UnlockOrientation = function ()
+	{
+		this.runtime.autoLockOrientation = false;
+		if (screen["orientation"] && screen["orientation"]["unlock"])
+			screen["orientation"]["unlock"]();
+		else if (screen["unlockOrientation"])
+			screen["unlockOrientation"]();
+		else if (screen["webkitUnlockOrientation"])
+			screen["webkitUnlockOrientation"]();
+		else if (screen["mozUnlockOrientation"])
+			screen["mozUnlockOrientation"]();
+		else if (screen["msUnlockOrientation"])
+			screen["msUnlockOrientation"]();
+	};
+	pluginProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.URL = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : window.location.toString());
+	};
+	Exps.prototype.Protocol = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : window.location.protocol);
+	};
+	Exps.prototype.Domain = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : window.location.hostname);
+	};
+	Exps.prototype.PathName = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : window.location.pathname);
+	};
+	Exps.prototype.Hash = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : window.location.hash);
+	};
+	Exps.prototype.Referrer = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : document.referrer);
+	};
+	Exps.prototype.Title = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : document.title);
+	};
+	Exps.prototype.Name = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : navigator.appName);
+	};
+	Exps.prototype.Version = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : navigator.appVersion);
+	};
+	Exps.prototype.Language = function (ret)
+	{
+		if (navigator && navigator.language)
+			ret.set_string(navigator.language);
+		else
+			ret.set_string("");
+	};
+	Exps.prototype.Platform = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : navigator.platform);
+	};
+	Exps.prototype.Product = function (ret)
+	{
+		if (navigator && navigator.product)
+			ret.set_string(navigator.product);
+		else
+			ret.set_string("");
+	};
+	Exps.prototype.Vendor = function (ret)
+	{
+		if (navigator && navigator.vendor)
+			ret.set_string(navigator.vendor);
+		else
+			ret.set_string("");
+	};
+	Exps.prototype.UserAgent = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : navigator.userAgent);
+	};
+	Exps.prototype.QueryString = function (ret)
+	{
+		ret.set_string(this.runtime.isDomFree ? "" : window.location.search);
+	};
+	Exps.prototype.QueryParam = function (ret, paramname)
+	{
+		if (this.runtime.isDomFree)
+		{
+			ret.set_string("");
+			return;
+		}
+		var match = RegExp('[?&]' + paramname + '=([^&]*)').exec(window.location.search);
+		if (match)
+			ret.set_string(decodeURIComponent(match[1].replace(/\+/g, ' ')));
+		else
+			ret.set_string("");
+	};
+	Exps.prototype.Bandwidth = function (ret)
+	{
+		var connection = navigator["connection"] || navigator["mozConnection"] || navigator["webkitConnection"];
+		if (!connection)
+			ret.set_float(Number.POSITIVE_INFINITY);
+		else
+		{
+			if (typeof connection["bandwidth"] !== "undefined")
+				ret.set_float(connection["bandwidth"]);
+			else if (typeof connection["downlinkMax"] !== "undefined")
+				ret.set_float(connection["downlinkMax"]);
+			else
+				ret.set_float(Number.POSITIVE_INFINITY);
+		}
+	};
+	Exps.prototype.ConnectionType = function (ret)
+	{
+		var connection = navigator["connection"] || navigator["mozConnection"] || navigator["webkitConnection"];
+		if (!connection)
+			ret.set_string("unknown");
+		else
+		{
+			ret.set_string(connection["type"] || "unknown");
+		}
+	};
+	Exps.prototype.BatteryLevel = function (ret)
+	{
+		var battery = navigator["battery"] || navigator["mozBattery"] || navigator["webkitBattery"];
+		if (battery)
+		{
+			ret.set_float(battery["level"]);
+		}
+		else
+		{
+			maybeLoadBatteryManager();
+			if (batteryManager)
+			{
+				ret.set_float(batteryManager["level"]);
+			}
+			else
+			{
+				ret.set_float(1);		// not supported/unknown: assume charged
+			}
+		}
+	};
+	Exps.prototype.BatteryTimeLeft = function (ret)
+	{
+		var battery = navigator["battery"] || navigator["mozBattery"] || navigator["webkitBattery"];
+		if (battery)
+		{
+			ret.set_float(battery["dischargingTime"]);
+		}
+		else
+		{
+			maybeLoadBatteryManager();
+			if (batteryManager)
+			{
+				ret.set_float(batteryManager["dischargingTime"]);
+			}
+			else
+			{
+				ret.set_float(Number.POSITIVE_INFINITY);		// not supported/unknown: assume infinite time left
+			}
+		}
+	};
+	Exps.prototype.ExecJS = function (ret, js_)
+	{
+		if (!eval)
+		{
+			ret.set_any(0);
+			return;
+		}
+		var result = 0;
+		try {
+			result = eval(js_);
+		}
+		catch (e)
+		{
+			if (console && console.error)
+				console.error("Error executing Javascript: ", e);
+		}
+		if (typeof result === "number")
+			ret.set_any(result);
+		else if (typeof result === "string")
+			ret.set_any(result);
+		else if (typeof result === "boolean")
+			ret.set_any(result ? 1 : 0);
+		else
+			ret.set_any(0);
+	};
+	Exps.prototype.ScreenWidth = function (ret)
+	{
+		ret.set_int(screen.width);
+	};
+	Exps.prototype.ScreenHeight = function (ret)
+	{
+		ret.set_int(screen.height);
+	};
+	Exps.prototype.DevicePixelRatio = function (ret)
+	{
+		ret.set_float(this.runtime.devicePixelRatio);
+	};
+	Exps.prototype.WindowInnerWidth = function (ret)
+	{
+		ret.set_int(window.innerWidth);
+	};
+	Exps.prototype.WindowInnerHeight = function (ret)
+	{
+		ret.set_int(window.innerHeight);
+	};
+	Exps.prototype.WindowOuterWidth = function (ret)
+	{
+		ret.set_int(window.outerWidth);
+	};
+	Exps.prototype.WindowOuterHeight = function (ret)
+	{
+		ret.set_int(window.outerHeight);
+	};
+	pluginProto.exps = new Exps();
+}());
+;
+;
 cr.plugins_.Button = function(runtime)
 {
 	this.runtime = runtime;
@@ -15495,6 +16297,517 @@ cr.plugins_.Button = function(runtime)
 	};
 	pluginProto.acts = new Acts();
 	function Exps() {};
+	pluginProto.exps = new Exps();
+}());
+;
+;
+cr.plugins_.Keyboard = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Keyboard.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+		this.keyMap = new Array(256);	// stores key up/down state
+		this.usedKeys = new Array(256);
+		this.triggerKey = 0;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	instanceProto.onCreate = function()
+	{
+		var self = this;
+		if (!this.runtime.isDomFree)
+		{
+			jQuery(document).keydown(
+				function(info) {
+					self.onKeyDown(info);
+				}
+			);
+			jQuery(document).keyup(
+				function(info) {
+					self.onKeyUp(info);
+				}
+			);
+		}
+	};
+	var keysToBlockWhenFramed = [32, 33, 34, 35, 36, 37, 38, 39, 40, 44];
+	instanceProto.onKeyDown = function (info)
+	{
+		var alreadyPreventedDefault = false;
+		if (window != window.top && keysToBlockWhenFramed.indexOf(info.which) > -1)
+		{
+			info.preventDefault();
+			alreadyPreventedDefault = true;
+			info.stopPropagation();
+		}
+		if (this.keyMap[info.which])
+		{
+			if (this.usedKeys[info.which] && !alreadyPreventedDefault)
+				info.preventDefault();
+			return;
+		}
+		this.keyMap[info.which] = true;
+		this.triggerKey = info.which;
+		this.runtime.isInUserInputEvent = true;
+		this.runtime.trigger(cr.plugins_.Keyboard.prototype.cnds.OnAnyKey, this);
+		var eventRan = this.runtime.trigger(cr.plugins_.Keyboard.prototype.cnds.OnKey, this);
+		var eventRan2 = this.runtime.trigger(cr.plugins_.Keyboard.prototype.cnds.OnKeyCode, this);
+		this.runtime.isInUserInputEvent = false;
+		if (eventRan || eventRan2)
+		{
+			this.usedKeys[info.which] = true;
+			if (!alreadyPreventedDefault)
+				info.preventDefault();
+		}
+	};
+	instanceProto.onKeyUp = function (info)
+	{
+		this.keyMap[info.which] = false;
+		this.triggerKey = info.which;
+		this.runtime.isInUserInputEvent = true;
+		this.runtime.trigger(cr.plugins_.Keyboard.prototype.cnds.OnAnyKeyReleased, this);
+		var eventRan = this.runtime.trigger(cr.plugins_.Keyboard.prototype.cnds.OnKeyReleased, this);
+		var eventRan2 = this.runtime.trigger(cr.plugins_.Keyboard.prototype.cnds.OnKeyCodeReleased, this);
+		this.runtime.isInUserInputEvent = false;
+		if (eventRan || eventRan2 || this.usedKeys[info.which])
+		{
+			this.usedKeys[info.which] = true;
+			info.preventDefault();
+		}
+	};
+	instanceProto.onWindowBlur = function ()
+	{
+		var i;
+		for (i = 0; i < 256; ++i)
+		{
+			if (!this.keyMap[i])
+				continue;		// key already up
+			this.keyMap[i] = false;
+			this.triggerKey = i;
+			this.runtime.trigger(cr.plugins_.Keyboard.prototype.cnds.OnAnyKeyReleased, this);
+			var eventRan = this.runtime.trigger(cr.plugins_.Keyboard.prototype.cnds.OnKeyReleased, this);
+			var eventRan2 = this.runtime.trigger(cr.plugins_.Keyboard.prototype.cnds.OnKeyCodeReleased, this);
+			if (eventRan || eventRan2)
+				this.usedKeys[i] = true;
+		}
+	};
+	instanceProto.saveToJSON = function ()
+	{
+		return { "triggerKey": this.triggerKey };
+	};
+	instanceProto.loadFromJSON = function (o)
+	{
+		this.triggerKey = o["triggerKey"];
+	};
+	function Cnds() {};
+	Cnds.prototype.IsKeyDown = function(key)
+	{
+		return this.keyMap[key];
+	};
+	Cnds.prototype.OnKey = function(key)
+	{
+		return (key === this.triggerKey);
+	};
+	Cnds.prototype.OnAnyKey = function(key)
+	{
+		return true;
+	};
+	Cnds.prototype.OnAnyKeyReleased = function(key)
+	{
+		return true;
+	};
+	Cnds.prototype.OnKeyReleased = function(key)
+	{
+		return (key === this.triggerKey);
+	};
+	Cnds.prototype.IsKeyCodeDown = function(key)
+	{
+		key = Math.floor(key);
+		if (key < 0 || key >= this.keyMap.length)
+			return false;
+		return this.keyMap[key];
+	};
+	Cnds.prototype.OnKeyCode = function(key)
+	{
+		return (key === this.triggerKey);
+	};
+	Cnds.prototype.OnKeyCodeReleased = function(key)
+	{
+		return (key === this.triggerKey);
+	};
+	pluginProto.cnds = new Cnds();
+	function Acts() {};
+	pluginProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.LastKeyCode = function (ret)
+	{
+		ret.set_int(this.triggerKey);
+	};
+	function fixedStringFromCharCode(kc)
+	{
+		kc = Math.floor(kc);
+		switch (kc) {
+		case 8:		return "backspace";
+		case 9:		return "tab";
+		case 13:	return "enter";
+		case 16:	return "shift";
+		case 17:	return "control";
+		case 18:	return "alt";
+		case 19:	return "pause";
+		case 20:	return "capslock";
+		case 27:	return "esc";
+		case 33:	return "pageup";
+		case 34:	return "pagedown";
+		case 35:	return "end";
+		case 36:	return "home";
+		case 37:	return "←";
+		case 38:	return "↑";
+		case 39:	return "→";
+		case 40:	return "↓";
+		case 45:	return "insert";
+		case 46:	return "del";
+		case 91:	return "left window key";
+		case 92:	return "right window key";
+		case 93:	return "select";
+		case 96:	return "numpad 0";
+		case 97:	return "numpad 1";
+		case 98:	return "numpad 2";
+		case 99:	return "numpad 3";
+		case 100:	return "numpad 4";
+		case 101:	return "numpad 5";
+		case 102:	return "numpad 6";
+		case 103:	return "numpad 7";
+		case 104:	return "numpad 8";
+		case 105:	return "numpad 9";
+		case 106:	return "numpad *";
+		case 107:	return "numpad +";
+		case 109:	return "numpad -";
+		case 110:	return "numpad .";
+		case 111:	return "numpad /";
+		case 112:	return "F1";
+		case 113:	return "F2";
+		case 114:	return "F3";
+		case 115:	return "F4";
+		case 116:	return "F5";
+		case 117:	return "F6";
+		case 118:	return "F7";
+		case 119:	return "F8";
+		case 120:	return "F9";
+		case 121:	return "F10";
+		case 122:	return "F11";
+		case 123:	return "F12";
+		case 144:	return "numlock";
+		case 145:	return "scroll lock";
+		case 186:	return ";";
+		case 187:	return "=";
+		case 188:	return ",";
+		case 189:	return "-";
+		case 190:	return ".";
+		case 191:	return "/";
+		case 192:	return "'";
+		case 219:	return "[";
+		case 220:	return "\\";
+		case 221:	return "]";
+		case 222:	return "#";
+		case 223:	return "`";
+		default:	return String.fromCharCode(kc);
+		}
+	};
+	Exps.prototype.StringFromKeyCode = function (ret, kc)
+	{
+		ret.set_string(fixedStringFromCharCode(kc));
+	};
+	pluginProto.exps = new Exps();
+}());
+;
+;
+cr.plugins_.Mouse = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Mouse.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+		this.buttonMap = new Array(4);		// mouse down states
+		this.mouseXcanvas = 0;				// mouse position relative to canvas
+		this.mouseYcanvas = 0;
+		this.triggerButton = 0;
+		this.triggerType = 0;
+		this.triggerDir = 0;
+		this.handled = false;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	instanceProto.onCreate = function()
+	{
+		var self = this;
+		if (!this.runtime.isDomFree)
+		{
+			jQuery(document).mousemove(
+				function(info) {
+					self.onMouseMove(info);
+				}
+			);
+			jQuery(document).mousedown(
+				function(info) {
+					self.onMouseDown(info);
+				}
+			);
+			jQuery(document).mouseup(
+				function(info) {
+					self.onMouseUp(info);
+				}
+			);
+			jQuery(document).dblclick(
+				function(info) {
+					self.onDoubleClick(info);
+				}
+			);
+			var wheelevent = function(info) {
+								self.onWheel(info);
+							};
+			document.addEventListener("mousewheel", wheelevent, false);
+			document.addEventListener("DOMMouseScroll", wheelevent, false);
+		}
+	};
+	var dummyoffset = {left: 0, top: 0};
+	instanceProto.onMouseMove = function(info)
+	{
+		var offset = this.runtime.isDomFree ? dummyoffset : jQuery(this.runtime.canvas).offset();
+		this.mouseXcanvas = info.pageX - offset.left;
+		this.mouseYcanvas = info.pageY - offset.top;
+	};
+	instanceProto.mouseInGame = function ()
+	{
+		if (this.runtime.fullscreen_mode > 0)
+			return true;
+		return this.mouseXcanvas >= 0 && this.mouseYcanvas >= 0
+		    && this.mouseXcanvas < this.runtime.width && this.mouseYcanvas < this.runtime.height;
+	};
+	instanceProto.onMouseDown = function(info)
+	{
+		if (!this.mouseInGame())
+			return;
+		this.buttonMap[info.which] = true;
+		this.runtime.isInUserInputEvent = true;
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnAnyClick, this);
+		this.triggerButton = info.which - 1;	// 1-based
+		this.triggerType = 0;					// single click
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnClick, this);
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnObjectClicked, this);
+		this.runtime.isInUserInputEvent = false;
+	};
+	instanceProto.onMouseUp = function(info)
+	{
+		if (!this.buttonMap[info.which])
+			return;
+		if (this.runtime.had_a_click && !this.runtime.isMobile)
+			info.preventDefault();
+		this.runtime.had_a_click = true;
+		this.buttonMap[info.which] = false;
+		this.runtime.isInUserInputEvent = true;
+		this.triggerButton = info.which - 1;	// 1-based
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnRelease, this);
+		this.runtime.isInUserInputEvent = false;
+	};
+	instanceProto.onDoubleClick = function(info)
+	{
+		if (!this.mouseInGame())
+			return;
+		info.preventDefault();
+		this.runtime.isInUserInputEvent = true;
+		this.triggerButton = info.which - 1;	// 1-based
+		this.triggerType = 1;					// double click
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnClick, this);
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnObjectClicked, this);
+		this.runtime.isInUserInputEvent = false;
+	};
+	instanceProto.onWheel = function (info)
+	{
+		var delta = info.wheelDelta ? info.wheelDelta : info.detail ? -info.detail : 0;
+		this.triggerDir = (delta < 0 ? 0 : 1);
+		this.handled = false;
+		this.runtime.isInUserInputEvent = true;
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnWheel, this);
+		this.runtime.isInUserInputEvent = false;
+		if (this.handled && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+	};
+	instanceProto.onWindowBlur = function ()
+	{
+		var i, len;
+		for (i = 0, len = this.buttonMap.length; i < len; ++i)
+		{
+			if (!this.buttonMap[i])
+				continue;
+			this.buttonMap[i] = false;
+			this.triggerButton = i - 1;
+			this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnRelease, this);
+		}
+	};
+	function Cnds() {};
+	Cnds.prototype.OnClick = function (button, type)
+	{
+		return button === this.triggerButton && type === this.triggerType;
+	};
+	Cnds.prototype.OnAnyClick = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.IsButtonDown = function (button)
+	{
+		return this.buttonMap[button + 1];	// jQuery uses 1-based buttons for some reason
+	};
+	Cnds.prototype.OnRelease = function (button)
+	{
+		return button === this.triggerButton;
+	};
+	Cnds.prototype.IsOverObject = function (obj)
+	{
+		var cnd = this.runtime.getCurrentCondition();
+		var mx = this.mouseXcanvas;
+		var my = this.mouseYcanvas;
+		return cr.xor(this.runtime.testAndSelectCanvasPointOverlap(obj, mx, my, cnd.inverted), cnd.inverted);
+	};
+	Cnds.prototype.OnObjectClicked = function (button, type, obj)
+	{
+		if (button !== this.triggerButton || type !== this.triggerType)
+			return false;	// wrong click type
+		return this.runtime.testAndSelectCanvasPointOverlap(obj, this.mouseXcanvas, this.mouseYcanvas, false);
+	};
+	Cnds.prototype.OnWheel = function (dir)
+	{
+		this.handled = true;
+		return dir === this.triggerDir;
+	};
+	pluginProto.cnds = new Cnds();
+	function Acts() {};
+	var lastSetCursor = null;
+	Acts.prototype.SetCursor = function (c)
+	{
+		if (this.runtime.isDomFree)
+			return;
+		var cursor_style = ["auto", "pointer", "text", "crosshair", "move", "help", "wait", "none"][c];
+		if (lastSetCursor === cursor_style)
+			return;		// redundant
+		lastSetCursor = cursor_style;
+		document.body.style.cursor = cursor_style;
+	};
+	Acts.prototype.SetCursorSprite = function (obj)
+	{
+		if (this.runtime.isDomFree || this.runtime.isMobile || !obj)
+			return;
+		var inst = obj.getFirstPicked();
+		if (!inst || !inst.curFrame)
+			return;
+		var frame = inst.curFrame;
+		if (lastSetCursor === frame)
+			return;		// already set this frame
+		lastSetCursor = frame;
+		var datauri = frame.getDataUri();
+		var cursor_style = "url(" + datauri + ") " + Math.round(frame.hotspotX * frame.width) + " " + Math.round(frame.hotspotY * frame.height) + ", auto";
+		document.body.style.cursor = "";
+		document.body.style.cursor = cursor_style;
+	};
+	pluginProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.X = function (ret, layerparam)
+	{
+		var layer, oldScale, oldZoomRate, oldParallaxX, oldAngle;
+		if (cr.is_undefined(layerparam))
+		{
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxX = layer.parallaxX;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxX = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, true));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxX = oldParallaxX;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+			if (layer)
+				ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, true));
+			else
+				ret.set_float(0);
+		}
+	};
+	Exps.prototype.Y = function (ret, layerparam)
+	{
+		var layer, oldScale, oldZoomRate, oldParallaxY, oldAngle;
+		if (cr.is_undefined(layerparam))
+		{
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxY = layer.parallaxY;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxY = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, false));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxY = oldParallaxY;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+			if (layer)
+				ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, false));
+			else
+				ret.set_float(0);
+		}
+	};
+	Exps.prototype.AbsoluteX = function (ret)
+	{
+		ret.set_float(this.mouseXcanvas);
+	};
+	Exps.prototype.AbsoluteY = function (ret)
+	{
+		ret.set_float(this.mouseYcanvas);
+	};
 	pluginProto.exps = new Exps();
 }());
 ;
@@ -16445,6 +17758,790 @@ cr.plugins_.TextBox = function(runtime)
 }());
 ;
 ;
+cr.plugins_.UserMedia = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.UserMedia.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	typeProto.onRestoreWebGLContext = function ()
+	{
+		if (this.is_family || !this.instances.length)
+			return;
+		var i, len, inst;
+		for (i = 0, len = this.instances.length; i < len; i++)
+		{
+			inst = this.instances[i];
+			if (inst.video_active && inst.v.videoWidth >= 0 && inst.v.videoHeight >= 0)
+			{
+				inst.webGL_texture = this.runtime.glwrap.createEmptyTexture(inst.v.videoWidth, inst.v.videoHeight, this.runtime.linearSampling);
+			}
+		}
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	var supportsMediaDevices = !!navigator["mediaDevices"];
+	var supportsMediaDevicesGUM = supportsMediaDevices && !!navigator["mediaDevices"]["getUserMedia"];
+	if (!window["URL"])
+	{
+		window["URL"] = window["webkitURL"] || window["mozURL"] || window["msURL"];
+	}
+	var audioSources = [];
+	var videoSources = [];
+	var isRequesting = false;
+	var CJS_CAMWIDTH = 640;
+	var CJS_CAMHEIGHT = 480;
+	var supportsSpeechRecognition = !!(window["webkitSpeechRecognition"] || window["speechRecognition"]);
+	var ambientlux = -1;
+	var mediaRecorder = null;
+	var canvasStream = null;
+	var canvasRecordFormat = "";
+	var canvasRecordChunks = [];
+	var canvasRecordingUrl = "";
+	function stopStream(stream)
+	{
+		if (!stream)
+			return;
+		if (stream.stop)
+		{
+			stream.stop();
+		}
+		else
+		{
+			var tracks = stream["getTracks"]();
+			for (var i = 0, len = tracks.length; i < len; ++i)
+			{
+				var track = tracks[i];
+				if (track.stop)
+					track.stop();
+			}
+		}
+	};
+	var speechSynthesis = window["speechSynthesis"] || window["webkitSpeechSynthesis"] || window["mozSpeechSynthesis"] || window["msSpeechSynthesis"];
+	var SpeechSynthesisUtterance = window["SpeechSynthesisUtterance"] || window["webkitSpeechSynthesisUtterance"] || window["mozSpeechSynthesisUtterance"] || window["msSpeechSynthesisUtterance"];
+	var speechVoices = null;
+	var requestedVoices = false;
+	function lazyGetVoices()
+	{
+		if (requestedVoices || !speechSynthesis)
+			return;
+		speechVoices = speechSynthesis["getVoices"]();
+		requestedVoices = true;
+	};
+	function getVoiceCount()
+	{
+		lazyGetVoices();
+		return speechVoices ? speechVoices.length : 0;
+	};
+	function getVoiceAt(i)
+	{
+		lazyGetVoices();
+		if (!speechVoices)
+			return null;
+		if (i < 0 || i >= speechVoices.length)
+			return null;
+		return speechVoices[i];
+	};
+	function getVoiceByURI(uri)
+	{
+		lazyGetVoices();
+		if (!speechVoices)
+			return null;
+		var i, len, v;
+		for (i = 0, len = speechVoices.length; i < len; ++i)
+		{
+			v = speechVoices[i];
+			if (v["voiceURI"] === uri)
+				return v;
+		}
+		return null;
+	};
+	instanceProto.onCreate = function()
+	{
+		var self = this;
+		this.v = document.createElement("video");
+		if (this.v)
+		{
+			this.v.crossOrigin = "anonymous";
+			this.v.autoplay = true;
+			this.v.addEventListener("canplaythrough", function ()
+			{
+				if (self.video_active)
+					self.video_ready = true;
+			});
+		}
+		cr.setGLBlend(this, 0, this.runtime.gl);		// normal alpha blend
+		this.video_active = false;
+		this.audio_active = false;
+		this.media_stream = null;
+		this.runtime.tickMe(this);
+		this.snapshot_data = "";
+		this.webGL_texture = null;
+		this.lastDecodedFrame = -1;
+		this.video_ready = false;
+		this.viaCanvas = null;
+		this.viaCtx = null;
+		this.useViaCanvasWorkaround = this.runtime.isIE || this.runtime.isMicrosoftEdge;
+		this.speechRecognition = null;
+		this.finalTranscript = "";
+		this.interimTranscript = "";
+		this.isRecognisingSpeech = false;
+		this.lastSpeechError = "";
+		if (this.runtime.isWinJS && !this.runtime.isWindows8Capable)
+		{
+			var lightSensor = Windows["Devices"]["Sensors"]["LightSensor"]["getDefault"]();
+			if (lightSensor)
+			{
+				var minInterval = lightSensor["minimumReportInterval"];
+				lightSensor["reportInterval"] = (minInterval > 16 ? minInterval : 16);
+				lightSensor.addEventListener("readingchanged", function (e)
+				{
+					ambientlux = e["reading"]["illuminanceInLux"];
+					self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnDeviceLight, self);
+				});
+			}
+		}
+		else
+		{
+			window.addEventListener("devicelight", function (e) {
+				ambientlux = e["value"];
+				self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnDeviceLight, self);
+			});
+		}
+	};
+	instanceProto.onDestroy = function()
+	{
+		if (this.media_stream)
+		{
+			stopStream(this.media_stream);
+			this.media_stream = null;
+			this.video_active = false;
+			this.video_ready = false;
+			this.audio_active = false;
+		}
+		if (this.runtime.glwrap && this.webGL_texture)
+		{
+			this.runtime.glwrap.deleteTexture(this.webGL_texture);
+			this.webGL_texture = null;
+		}
+		this.viaCanvas = null;
+		this.viaCtx = null;
+	};
+	instanceProto.tick = function ()
+	{
+		if (this.video_active && this.video_ready)
+			this.runtime.redraw = true;
+	};
+	instanceProto.draw = function(ctx)
+	{
+		ctx.globalAlpha = this.opacity;
+		ctx.save();
+		ctx.fillStyle = "#000";
+		ctx.fillRect(this.x, this.y, this.width, this.height);
+		if (this.video_active && this.video_ready)
+		{
+			var videoWidth = this.v.videoWidth;
+			var videoHeight = this.v.videoHeight;
+			var videoAspect = videoWidth / videoHeight;
+			var dispWidth = this.width;
+			var dispHeight = this.height;
+			var dispAspect = dispWidth / dispHeight;
+			var offx = 0;
+			var offy = 0;
+			var drawWidth = 0;
+			var drawHeight = 0;
+			if (dispAspect > videoAspect)
+			{
+				drawWidth = dispHeight * videoAspect;
+				drawHeight = dispHeight;
+				offx = Math.floor((dispWidth - drawWidth) / 2);
+				if (offx < 0)
+					offx = 0;
+			}
+			else
+			{
+				drawWidth = dispWidth;
+				drawHeight = dispWidth / videoAspect;
+				offy = Math.floor((dispHeight - drawHeight) / 2);
+				if (offy < 0)
+					offy = 0;
+			}
+			try {
+				ctx.drawImage(this.v, this.x + offx, this.y + offy, drawWidth, drawHeight);
+			}
+			catch (e) {}
+		}
+		ctx.restore();
+	};
+	instanceProto.drawGL = function (glw)
+	{
+		glw.setBlend(this.srcBlend, this.destBlend);
+		glw.setOpacity(this.opacity);
+		var q = this.bquad;
+		glw.setTexture(null);
+		glw.quad(q.tlx, q.tly, q.trx, q.try_, q.brx, q.bry, q.blx, q.bly);
+		if (!this.video_active || !this.video_ready || this.v.videoWidth <= 0 || this.v.videoHeight <= 0)
+		{
+			return;
+		}
+		if (!this.webGL_texture)
+		{
+			this.webGL_texture = glw.createEmptyTexture(this.v.videoWidth, this.v.videoHeight, this.runtime.linearSampling);
+		}
+		var framecount = this.v["webkitDecodedFrameCount"] || this.v["mozParsedFrames"];
+		var updatetexture = false;
+		if (!framecount)
+			updatetexture = true;
+		else if (framecount > this.lastDecodedFrame)
+		{
+			updatetexture = true;
+			this.lastDecodedFrame = framecount;
+		}
+		if (updatetexture)
+		{
+			if (this.useViaCanvasWorkaround)
+			{
+				if (!this.viaCtx)
+				{
+					this.viaCanvas = document.createElement("canvas");
+					this.viaCanvas.width = this.v.videoWidth;
+					this.viaCanvas.height = this.v.videoHeight;
+					this.viaCtx = this.viaCanvas.getContext("2d");
+				}
+				this.viaCtx.drawImage(this.v, 0, 0);
+				glw.videoToTexture(this.viaCanvas, this.webGL_texture);
+			}
+			else
+			{
+				glw.videoToTexture(this.v, this.webGL_texture);
+			}
+		}
+		var videoWidth = this.v.videoWidth;
+		var videoHeight = this.v.videoHeight;
+		var videoAspect = videoWidth / videoHeight;
+		var dispWidth = this.width;
+		var dispHeight = this.height;
+		var dispAspect = dispWidth / dispHeight;
+		var offx = 0;
+		var offy = 0;
+		var drawWidth = 0;
+		var drawHeight = 0;
+		if (dispAspect > videoAspect)
+		{
+			drawWidth = dispHeight * videoAspect;
+			drawHeight = dispHeight;
+			offx = Math.floor((dispWidth - drawWidth) / 2);
+			if (offx < 0)
+				offx = 0;
+		}
+		else
+		{
+			drawWidth = dispWidth;
+			drawHeight = dispWidth / videoAspect;
+			offy = Math.floor((dispHeight - drawHeight) / 2);
+			if (offy < 0)
+				offy = 0;
+		}
+		var left = this.x + offx;
+		var top = this.y + offy;
+		var right = left + drawWidth;
+		var bottom = top + drawHeight;
+		glw.setTexture(this.webGL_texture);
+		glw.quad(left, top, right, top, right, bottom, left, bottom);
+	};
+	function Cnds() {};
+	Cnds.prototype.OnApproved = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnDeclined = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.SupportsUserMedia = function ()
+	{
+		return supportsMediaDevicesGUM;
+	};
+	Cnds.prototype.SupportsSpeechRecognition = function ()
+	{
+		return supportsSpeechRecognition;
+	};
+	Cnds.prototype.OnSpeechRecognitionStart = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnSpeechRecognitionEnd = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnSpeechRecognitionError = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnSpeechRecognitionResult = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.IsRecognisingSpeech = function ()
+	{
+		return this.isRecognisingSpeech;
+	};
+	Cnds.prototype.OnDeviceLight = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.SupportsSpeechSynthesis = function ()
+	{
+		return !!speechSynthesis && !!SpeechSynthesisUtterance;
+	};
+	Cnds.prototype.IsSpeaking = function ()
+	{
+		return speechSynthesis && speechSynthesis["speaking"];
+	};
+	Cnds.prototype.OnMediaSources = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.OnCanvasRecordingReady = function ()
+	{
+		return true;
+	};
+	Cnds.prototype.SupportsCanvasRecording = function ()
+	{
+		return this.runtime.canvas && this.runtime.canvas["captureStream"] && typeof MediaRecorder !== "undefined";
+	};
+	Cnds.prototype.IsCanvasRecordFormatSupported = function (format_)
+	{
+		var recordFormat;
+		if (format_ === 0)
+			recordFormat = "video/webm;codecs=vp8";
+		else
+			recordFormat = "video/webm;codecs=vp9";
+		if (typeof MediaRecorder === "undefined")		// not supported
+			return false;
+		else if (MediaRecorder.isTypeSupported)			// Modern API
+			return !!MediaRecorder.isTypeSupported(recordFormat);
+		else if (MediaRecorder.canRecordMimeType)		// older API
+			return !!MediaRecorder.canRecordMimeType(recordFormat);
+		else
+			return false;								// something else?
+	};
+	pluginProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.RequestCamera = function (source_index, preferredWidth, preferredHeight)
+	{
+		if (isRequesting || !supportsMediaDevicesGUM)
+			return;			// already has info bar up or user media not supported
+		isRequesting = true;
+		var self = this;
+		source_index = Math.floor(source_index);
+		var constraints = {};
+		if (source_index < 0 || source_index >= videoSources.length)
+		{
+			constraints["video"] = {};		// don't use boolean since width/height assignment can come later
+		}
+		else
+		{
+			constraints["video"] = {
+				"deviceId": {
+					"exact": videoSources[source_index]["deviceId"]
+				}
+			};
+		}
+		if (preferredWidth > 0 && preferredHeight > 0)
+		{
+			constraints["video"]["width"] = Math.floor(preferredWidth);
+			constraints["video"]["height"] = Math.floor(preferredHeight);
+		}
+		var onGotMediaStream = function (localMediaStream)
+		{
+			self.media_stream = localMediaStream;
+			self.video_ready = false;		// wait for canplaythrough event before rendering
+			if (typeof self.v.srcObject !== "undefined")
+				self.v.srcObject = localMediaStream;
+			else
+				self.v.src = window["URL"].createObjectURL(localMediaStream);
+			self.v.play();
+			self.video_active = true;
+			isRequesting = false;
+			self.lastDecodedFrame = -1;
+			if (self.runtime.glwrap && self.webGL_texture)
+			{
+				self.runtime.glwrap.deleteTexture(self.webGL_texture);
+				self.webGL_texture = null;
+			}
+			self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnApproved, self);
+		};
+		var onError = function (e)
+		{
+			isRequesting = false;
+			self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnDeclined, self);
+		};
+		navigator["mediaDevices"]["getUserMedia"](constraints).then(onGotMediaStream).catch(onError);
+	};
+	Acts.prototype.RequestMic = function (tag, source_index)
+	{
+		if (isRequesting || !supportsMediaDevicesGUM)
+			return;			// already has info bar up or user media not supported
+		isRequesting = true;
+		var self = this;
+		source_index = Math.floor(source_index);
+		var constraints = {};
+		if (source_index < 0 || source_index >= audioSources.length)
+		{
+			constraints["audio"] = true;
+		}
+		else
+		{
+			constraints["audio"] = {
+				"optional": [{
+					"deviceId": audioSources[source_index]["deviceId"]
+				}]
+			};
+		}
+		var onGotMediaStream = function (localMediaStream)
+		{
+			self.media_stream = localMediaStream;
+			if (window["c2OnAudioMicStream"])
+				window["c2OnAudioMicStream"](localMediaStream, tag);
+			self.audio_active = true;
+			isRequesting = false;
+			self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnApproved, self);
+		};
+		var onError = function ()
+		{
+			isRequesting = false;
+			self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnDeclined, self);
+		};
+		navigator["mediaDevices"]["getUserMedia"](constraints).then(onGotMediaStream).catch(onError);
+	};
+	Acts.prototype.Stop = function ()
+	{
+		if (this.media_stream)
+		{
+			stopStream(this.media_stream);
+			this.media_stream = null;
+			this.video_active = false;
+			this.video_ready = false;
+			this.audio_active = false;
+		}
+	};
+	Acts.prototype.Snapshot = function (format_, quality_)
+	{
+		if (this.video_active && this.video_ready)
+		{
+			var tmpcanvas = document.createElement("canvas");
+			tmpcanvas.width = this.v.videoWidth;
+			tmpcanvas.height = this.v.videoHeight;
+			var tmpctx = tmpcanvas.getContext("2d");
+			tmpctx.drawImage(this.v, 0, 0, this.v.videoWidth, this.v.videoHeight);
+			this.snapshot_data = tmpcanvas.toDataURL(format_ === 0 ? "image/png" : "image/jpeg", quality_ / 100);
+		}
+	};
+	Acts.prototype.RequestSpeechRecognition = function (lang_, mode_, results_)
+	{
+		if (!supportsSpeechRecognition)
+			return;
+		if (window["webkitSpeechRecognition"])
+			this.speechRecognition = new window["webkitSpeechRecognition"]();
+		else if (window["speechRecognition"])
+			this.speechRecognition = new window["speechRecognition"]();
+		this.speechRecognition["lang"] = lang_;
+		this.speechRecognition["continuous"] = (mode_ === 0);
+		this.speechRecognition["interimResults"] = (results_ === 0);
+		this.isRecognisingSpeech = false;		// reset until onstart fires
+		this.interimTranscript = "";
+		this.finalTranscript = "";
+		var self = this;
+		this.speechRecognition["onstart"] = function ()
+		{
+			self.isRecognisingSpeech = true;
+			self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnSpeechRecognitionStart, self);
+		};
+		this.speechRecognition["onend"] = function ()
+		{
+			self.isRecognisingSpeech = false;
+			self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnSpeechRecognitionEnd, self);
+		};
+		this.speechRecognition["onerror"] = function (e)
+		{
+			self.isRecognisingSpeech = false;
+			self.lastSpeechError = e["error"] || "unknown";
+			self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnSpeechRecognitionError, self);
+		};
+		this.speechRecognition["onresult"] = function (e)
+		{
+			var i;
+			self.interimTranscript = "";
+			for (i = e["resultIndex"]; i < e["results"].length; ++i)
+			{
+				if (e["results"][i]["isFinal"])
+					self.finalTranscript += e["results"][i][0]["transcript"];
+				else
+					self.interimTranscript += e["results"][i][0]["transcript"];
+			}
+			self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnSpeechRecognitionResult, self);
+		};
+		this.speechRecognition["start"]();
+	};
+	Acts.prototype.StepSpeechRecognition = function ()
+	{
+		if (this.speechRecognition)
+		{
+			this.speechRecognition["stop"]();
+			this.speechRecognition = null;
+		}
+	};
+	function dbToLinear(x)
+	{
+		var v = Math.pow(10, x / 20);
+		if (v < 0)
+			v = 0;
+		if (v > 1)
+			v = 1;
+		return v;
+	};
+	Acts.prototype.SpeakText = function (text, lang, uri, vol, rate, pitch)
+	{
+		if (!speechSynthesis || !SpeechSynthesisUtterance)
+			return;
+		var s = new SpeechSynthesisUtterance(text);
+		if (lang)
+			s["lang"] = lang;
+		if (uri)
+		{
+			s["voice"] = getVoiceByURI(uri);	// not in the standard but seems to be used by Chrome
+			s["voiceURI"] = uri;
+		}
+		s["volume"] = dbToLinear(vol);
+		s["rate"] = rate;
+		s["pitch"] = pitch;
+		speechSynthesis["speak"](s);
+	};
+	Acts.prototype.StopSpeaking = function ()
+	{
+		if (!speechSynthesis)
+			return;
+		speechSynthesis["cancel"]();
+	};
+	Acts.prototype.PauseSpeaking = function ()
+	{
+		if (!speechSynthesis)
+			return;
+		speechSynthesis["pause"]();
+	};
+	Acts.prototype.ResumeSpeaking = function ()
+	{
+		if (!speechSynthesis)
+			return;
+		speechSynthesis["resume"]();
+	};
+	Acts.prototype.GetMediaSources = function ()
+	{
+		var self = this;
+		cr.clearArray(audioSources);
+		cr.clearArray(videoSources);
+		var handleMediaSourcesList = function (media_sources)
+		{
+			var i, len, source, kind;
+			for (i = 0, len = media_sources.length; i < len; ++i)
+			{
+				source = media_sources[i];
+				kind = source["kind"];
+				if (kind === "audio" || kind === "audioinput")
+				{
+					audioSources.push(source);
+				}
+				else if (kind === "video" || kind === "videoinput")
+				{
+					videoSources.push(source);
+				}
+				self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnMediaSources, self);
+			}
+		};
+		if (navigator["mediaDevices"] && navigator["mediaDevices"]["enumerateDevices"])
+		{
+			navigator["mediaDevices"]["enumerateDevices"]().then(handleMediaSourcesList);
+		}
+		else if (window["MediaStreamTrack"] && window["MediaStreamTrack"]["getSources"])
+		{
+			window["MediaStreamTrack"]["getSources"](handleMediaSourcesList);
+		}
+	};
+	Acts.prototype.StartRecordingCanvas = function (format_, quality_, framerate_)
+	{
+		if (mediaRecorder || canvasStream)
+			return;		// already recording
+		if (!this.runtime.canvas || !this.runtime.canvas["captureStream"] || typeof window["MediaRecorder"] === "undefined")
+			return;		// not supported
+		if (framerate_ > 0)
+			canvasStream = this.runtime.canvas["captureStream"](framerate_);
+		else
+			canvasStream = this.runtime.canvas["captureStream"]();
+		cr.clearArray(canvasRecordChunks);
+		if (format_ === 0)
+			canvasRecordFormat = "video/webm;codecs=vp8";
+		else
+			canvasRecordFormat = "video/webm;codecs=vp9";
+		var self = this;
+		try {
+			mediaRecorder = new window["MediaRecorder"](canvasStream, {
+				"bitsPerSecond": quality_ * 1000,
+				"mimeType": canvasRecordFormat
+			});
+		}
+		catch (e)
+		{
+			stopStream(canvasStream);
+			canvasStream = null;
+			return;
+		}
+		mediaRecorder["ondataavailable"] = function (e)
+		{
+			canvasRecordChunks.push(e.data);
+		};
+		mediaRecorder["onerror"] = function (e)
+		{
+			console.error("Recording error: ", e);
+		};
+		mediaRecorder["onwarning"] = function (e)
+		{
+			console.warn("Recording warning: ", e);
+		};
+		mediaRecorder["onstop"] = function (e)
+		{
+			var blob = new Blob(canvasRecordChunks, { "type": canvasRecordFormat });
+			if (canvasRecordingUrl)
+				URL.revokeObjectURL(canvasRecordingUrl);
+			canvasRecordingUrl = URL.createObjectURL(blob);
+			self.runtime.trigger(cr.plugins_.UserMedia.prototype.cnds.OnCanvasRecordingReady, self);
+		};
+		window.setTimeout(function ()
+		{
+			mediaRecorder["start"]();
+		}, 100);
+	};
+	Acts.prototype.StopRecordingCanvas = function ()
+	{
+		if (!mediaRecorder)
+			return;		// not recording
+		mediaRecorder.stop();
+		mediaRecorder = null;
+		stopStream(canvasStream);
+		canvasStream = null;
+	};
+	pluginProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.VideoWidth = function (ret)
+	{
+		ret.set_int(this.v ? this.v.videoWidth : 0);
+	};
+	Exps.prototype.VideoHeight = function (ret)
+	{
+		ret.set_int(this.v ? this.v.videoHeight : 0);
+	};
+	Exps.prototype.SnapshotURL = function (ret)
+	{
+		ret.set_string(this.snapshot_data);
+	};
+	Exps.prototype.FinalTranscript = function (ret)
+	{
+		ret.set_string(this.finalTranscript);
+	};
+	Exps.prototype.InterimTranscript = function (ret)
+	{
+		ret.set_string(this.interimTranscript);
+	};
+	Exps.prototype.SpeechError = function (ret)
+	{
+		ret.set_string(this.lastSpeechError);
+	};
+	Exps.prototype.AmbientLux = function (ret)
+	{
+		ret.set_float(ambientlux);
+	};
+	Exps.prototype.VoiceCount = function (ret)
+	{
+		ret.set_int(getVoiceCount());
+	};
+	Exps.prototype.VoiceNameAt = function (ret, i)
+	{
+		i = Math.floor(i);
+		var v = getVoiceAt(i);
+		ret.set_string(v ? v["name"] : "");
+	};
+	Exps.prototype.VoiceLangAt = function (ret, i)
+	{
+		i = Math.floor(i);
+		var v = getVoiceAt(i);
+		ret.set_string(v ? v["lang"] : "");
+	};
+	Exps.prototype.VoiceURIAt = function (ret, i)
+	{
+		i = Math.floor(i);
+		var v = getVoiceAt(i);
+		ret.set_string(v ? v["voiceURI"] : "");
+	};
+	Exps.prototype.AudioSourceCount = function (ret)
+	{
+		ret.set_int(audioSources.length);
+	};
+	Exps.prototype.AudioSourceLabelAt = function (ret, i)
+	{
+		i = Math.floor(i);
+		if (i < 0 || i >= audioSources.length)
+		{
+			ret.set_string("");
+			return;
+		}
+		ret.set_string(audioSources[i]["label"] || "");
+	};
+	Exps.prototype.CameraSourceCount = function (ret)
+	{
+		ret.set_int(videoSources.length);
+	};
+	Exps.prototype.CameraSourceLabelAt = function (ret, i)
+	{
+		i = Math.floor(i);
+		if (i < 0 || i >= videoSources.length)
+		{
+			ret.set_string("");
+			return;
+		}
+		ret.set_string(videoSources[i]["label"] || "");
+	};
+	Exps.prototype.CameraSourceFacingAt = function (ret, i)
+	{
+		i = Math.floor(i);
+		if (i < 0 || i >= videoSources.length)
+		{
+			ret.set_string("");
+			return;
+		}
+		ret.set_string(videoSources[i]["facing"] || videoSources[i]["facingMode"] || "");
+	};
+	Exps.prototype.CanvasRecordingURL = function (ret)
+	{
+		ret.set_string(canvasRecordingUrl);
+	};
+	pluginProto.exps = new Exps();
+}());
+;
+;
 cr.behaviors.Persist = function(runtime)
 {
 	this.runtime = runtime;
@@ -16490,19 +18587,33 @@ cr.behaviors.Persist = function(runtime)
 }());
 cr.getObjectRefTable = function () { return [
 	cr.plugins_.Button,
+	cr.plugins_.Browser,
+	cr.plugins_.Keyboard,
+	cr.plugins_.Mouse,
 	cr.plugins_.Text,
 	cr.plugins_.TextBox,
+	cr.plugins_.UserMedia,
 	cr.behaviors.Persist,
-	cr.system_object.prototype.cnds.OnLayoutStart,
+	cr.system_object.prototype.cnds.EveryTick,
 	cr.plugins_.TextBox.prototype.acts.SetCSSStyle,
 	cr.plugins_.TextBox.prototype.acts.SetFocus,
+	cr.plugins_.Button.prototype.acts.SetCSSStyle,
 	cr.plugins_.Button.prototype.cnds.OnClicked,
 	cr.system_object.prototype.acts.SetVar,
 	cr.plugins_.TextBox.prototype.exps.Text,
 	cr.system_object.prototype.acts.GoToLayout,
-	cr.system_object.prototype.cnds.EveryTick,
 	cr.plugins_.Text.prototype.acts.SetY,
 	cr.plugins_.Text.prototype.exps.Y,
 	cr.plugins_.Text.prototype.acts.SetHeight,
-	cr.plugins_.Text.prototype.acts.SetText
+	cr.plugins_.Text.prototype.acts.SetFontColor,
+	cr.system_object.prototype.exps.rgb,
+	cr.system_object.prototype.cnds.OnLayoutStart,
+	cr.plugins_.Text.prototype.acts.SetText,
+	cr.plugins_.Keyboard.prototype.cnds.OnKey,
+	cr.plugins_.UserMedia.prototype.acts.StartRecordingCanvas,
+	cr.plugins_.Button.prototype.acts.SetVisible,
+	cr.plugins_.UserMedia.prototype.acts.StopRecordingCanvas,
+	cr.plugins_.UserMedia.prototype.cnds.OnCanvasRecordingReady,
+	cr.plugins_.Browser.prototype.acts.InvokeDownload,
+	cr.plugins_.UserMedia.prototype.exps.CanvasRecordingURL
 ];};
