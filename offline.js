@@ -1,10 +1,12 @@
 ﻿{
-	"version": 1594136457,
+	"version": 1594229627,
 	"fileList": [
 		"data.js",
 		"c2runtime.js",
 		"jquery-3.4.1.min.js",
 		"offlineClient.js",
+		"media/créditos ojo que no.m4a",
+		"media/créditos ojo que no.ogg",
 		"icon-16.png",
 		"icon-32.png",
 		"icon-114.png",
